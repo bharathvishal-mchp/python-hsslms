@@ -160,20 +160,34 @@ class LMS_Priv:
     def _calc_knots(H, I, r, Tl, Tr, m):
         return H(I + u32str(r) + D_INTR + Tl + Tr).digest()[:m]
     
-    def __init__(self, typecode, otstypecode, num_cores=None):
+    def __init__(self, typecode, otstypecode, SEED=None, I=None, q=0, num_cores=None):
         if num_cores is None:
             num_cores = cpu_count()
         self.typecode = typecode
         self.otstypecode = otstypecode
         self.H, self.m, self.h = self.typecode.H, self.typecode.m, self.typecode.h
-        self.SEED = token_bytes(self.m)
-        self.I = token_bytes(16)
+        if SEED is None:
+            self.SEED = token_bytes(self.m)
+        else:
+            if len(SEED) != self.m:
+                raise INVALID
+            else:
+                self.SEED = SEED
+        if I is None:
+            self.I = token_bytes(16)
+        else:
+            if len(I) != 16:
+                raise INVALID
+            else:
+                self.I = I
+        if q >= 2**self.h:
+            raise INVALID("Private keys exhausted.")
         with Pool(num_cores) as p:
             self.T = [None]*(2**(self.h+1))
             self.T[2**self.h : 2**(self.h+1)] = p.starmap(LMS_Priv._calc_leafs, ((self.H, self.I, r, self.h, self.otstypecode, self.SEED) for r in range(2**self.h, 2**(self.h+1))))
             for i in range(self.h-1, -1, -1):
                 self.T[2**i : 2**(i+1)] = p.starmap(LMS_Priv._calc_knots, ((self.H, self.I, r, self.T[2*r], self.T[2*r+1], self.m) for r in range(2**i, 2**(i+1))))
-        self.q = 0
+        self.q = q
         
     def sign(self, message):
         """Signature Generation of LMS
